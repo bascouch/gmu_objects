@@ -506,7 +506,7 @@ t_int *bufGranul_perform1(t_int *w)
 		return (w+12);
 }
 //***********************************************************************************//
- 
+
 t_int *bufGranul_perform2(t_int *w)
 {   
 	t_bufGranul *x = (t_bufGranul *)(w[1]);
