@@ -33,6 +33,7 @@
 #include "buffer.h"
 #include <string.h>
 #include <math.h>
+
 #define NVOICES 512 // nombre maximum de voix
 #define NSBUF 512	// nombre maximum de buffers son
 #define NEBUF 512	// nombre maximum de buffers enveloppe
@@ -54,17 +55,25 @@
 #define SAT(a,min,max) (a < min) ? min : ( (a > max) ? max : a )
 #define MIN(a,min) (a < min) ? a : min
 #define MAX(a,max) (a > max) ? a : max 
-#define MOD(val,mod) val - (mod * floor( (float)val / mod ))
+#define MOD(val,mod) val - (mod * floor( (double)val / mod ))
 
 #define MODI(val,mod) val - (mod * ((val/mod) + (val >> 31))) // modulo LONG 32 bits version 
 
 #define MIN_LOOP_LENGTH 0.1
 
+#define _SETSYM(ap, x) ((ap)->a_type = A_SYM, (ap)->a_w.w_sym = (x))
+#define _SETLONG(ap, x) ((ap)->a_type = A_LONG, (ap)->a_w.w_long = (x))
+#define _SETFLOAT(ap, x) ((ap)->a_type = A_FLOAT, (ap)->a_w.w_float = (x))
 
 // INTERPOLATION TRICK DEFINES ///    TODO : EXPLAIN
 
 #define TABLE_BITS 10
 #define TABLE_SIZE (1 << TABLE_BITS)
+
+
+#define SINC_TABLE_SIZE 16385
+
+#define MAX_VECTORSIZE 4096
 
 #define LOST_BITS 	6
 
@@ -85,6 +94,9 @@ typedef struct linear_interp
 #define interp_index_scale(f) 	((f) * FRAC_SIZE)
 #define interp_get_int(i) 	 	((i) >> FRAC_BITS)
 #define interp_get_frac(i)		((i) & (FRAC_SIZE - 1))
+
+
+
 
 #define interp_get_table_index(i)	(((i) >> LOST_BITS) & (TABLE_SIZE - 1))
 
@@ -110,8 +122,8 @@ typedef struct _bufGranul
     t_symbol *x_buf_filename[NSBUF];	// nom du fichier dans le buffer~ son 
     int		  x_buf_nchan[NSBUF];		// nombre de canaux du buffer~ son
     long	  x_buf_frames[NSBUF];		// le nombre de sample dans le buffer~ son
-	float	 *x_buf_samples[NSBUF];		// pointeur sur le tableau d'échantillon du buffer~ son
-	float     x_buf_sronsr[NSBUF];		// freq ech buffer sur freq ech globale
+	double	 *x_buf_samples[NSBUF];		// pointeur sur le tableau d'échantillon du buffer~ son
+	double     x_buf_sronsr[NSBUF];		// freq ech buffer sur freq ech globale
 	int		  x_nbuffer;				// nombre de buffer son
  	int       x_active_buf;				// le buffer son actif est celui dans lequel les nouveaux grains sont prélevés.
 // BUFFER SON LOOP
@@ -123,7 +135,7 @@ typedef struct _bufGranul
     t_buffer *x_env_buf[NEBUF];			// le buffer~ enveloppe
     t_symbol *x_env_sym[NEBUF];			// le symbol correspondant au nom du buffer~ enveloppe
     long	  x_env_frames[NEBUF];		// le nombre de sample dans le buffer~ enveloppe
-	float	 *x_env_samples[NEBUF];		// pointeur sur le tableau d'échantillon du buffer~ enveloppe
+	double	 *x_env_samples[NEBUF];		// pointeur sur le tableau d'échantillon du buffer~ enveloppe
 	int		  x_nenvbuffer;				// nombre de buffer enveloppe
  	int       x_active_env;				// le buffer enveloppe actif est celui dans lequel les nouveaux grains sont prélevés.
 
@@ -131,17 +143,21 @@ typedef struct _bufGranul
     int		  x_nvoices;				// nombre de voix
     int		  x_sinterp;				// type d'interpolation
     long      x_nouts;					// nombre de sorties (2-4-6-8)
+    long      x_bchan_offset;           // channel offset in the snd buffer
     int		  x_nvoices_active;			// nombre de voix actives
     int		  x_loop;					// loop on/off (0 : no loops , 1 : loop entire buffer, 2 : loop between loopstart & end )
-    float 	  x_loopstart;
-    float 	  x_loopend;
+    double 	  x_loopstart;
+    double 	  x_loopend;
+    int       x_poly_mode;              // 0 : wait 1 : round_robin 2 : max_time_lasted 3 : max_time_remaining
      
 // GRAINS NON-SIGNAL
     int		  x_askfor;					// etat signalant une demande de grain (par un bang)
 										// Parametre en mode non-signal
-	float     x_begin, x_transpos, x_amp, x_pan, x_length, x_dist, x_teta, x_bufno;	
+	double     x_begin, x_transpos, x_amp, x_pan, x_length, x_dist, x_teta, x_bufno;
 	 									// Spatialisation : gain par hp
-    float     x_hp1, x_hp2, x_hp3, x_hp4, x_hp5, x_hp6, x_hp7, x_hp8;
+    double     x_hp1, x_hp2, x_hp3, x_hp4, x_hp5, x_hp6, x_hp7, x_hp8;
+
+    double     * x_hp;
     
 // GRAINS SIGNAL
     long  *x_ind;				// index de chaque voix
@@ -150,32 +166,43 @@ typedef struct _bufGranul
     
 		// vecteurs des voix (pitch, amp, pan, beg, len...)
     double *Vbeg;
-    float *Vtranspos, *Vamp,
+    double *Vtranspos, *Vamp,
 		  *Vlength, *Vpan, *Vdist; 
 
-    int   *Vbuf;				// numero du buffer son dans lequel sera pris le grain
+    long * Vloop;
+    double * Vloopstart, * Vloopend; // loop start and length per voice ( Vloop == 2 means entire buffer)
+    
+    long   *Vbuf;				// numero du buffer son dans lequel sera pris le grain
 
     int   x_env_dir;					// direction de lecture de l'enveloppe
-    float *envinc;				// pas d'avancement dans le buffer enveloppe (par rapport à la longueur du grain
-	float *envind;				// indice de départ dans le buffer enveloppe (debut si lecture normale, fin si lecture inversee)
-	float *x_env;				// enveloppe de chaque voix 
-    int   *Venv;				// numero du buffer enveloppe dans lequel sera pris le grain
+    double *envinc;				// pas d'avancement dans le buffer enveloppe (par rapport à la longueur du grain
+	double *envind;				// indice de départ dans le buffer enveloppe (debut si lecture normale, fin si lecture inversee)
+	double *x_env;				// enveloppe de chaque voix
+    long   *Venv;				// numero du buffer enveloppe dans lequel sera pris le grain
 
     int   *x_delay;				// delay du declenchement de grain par rapport au vecteur (voir perform)
-    int   *x_voiceOn;			// voix active
+    int   *x_voiceOn;			// voix active si = 2 : fadingout for kill
     
 										// valeur de pan pour chaque voix
-    float *Vhp1, *Vhp2, *Vhp3, *Vhp4, *Vhp5, *Vhp6, *Vhp7, *Vhp8;
+    double ** Vhp;
 
 // INTERPOLATION COEF TABLE
 
 	t_linear_interp * x_linear_interp_table;
+    double * x_sinc_interp_table;
+    double * x_blackman_table;
+    double * x_sinc_norm_table;
+    
+// FADEOUT KILL
+    double * x_kill_fadeout;
+    double * x_unity_gain;
+
 	 
 // DSP
-    float x_sr;						// frequence d'echantillonnage
+    double x_sr;						// frequence d'echantillonnage
 									// booleens vrais si signal connecte sur l'entree i
     short x_in2con, x_in3con, x_in4con, x_in5con, x_in6con, x_in7con, x_in8con; 
-    float x_sigin;					// valeur a l'entree de type signal	(voir dsp)
+    double x_sigin;					// valeur a l'entree de type signal	(voir dsp)
     
 // DEBUG
 	#ifdef PERF_DEBUG
@@ -217,7 +244,16 @@ void bufGranul_float(t_bufGranul *x, double f);			// routine de recuperation des
 void bufGranul_sinterp(t_bufGranul *x, long n);		// interpollation dans la lecture du buffer
 void bufGranul_poll(t_bufGranul *x, long n);		// nombres de voix en sorties
 void bufGranul_clear(t_bufGranul *x);				// panique ! effacement des grains en cours
+
+void bufGranul_killall(t_bufGranul *x);				// small fadeout
+void bufGranul_kill(t_bufGranul *x, long k);        // kill a specific voice
+void bufGranul_setvoice(t_bufGranul *x, long k);    // TODO : address specific voice
+
+void bufGranul_polymode(t_bufGranul *x, long k);
+int bufGranul_poly_assign_voice(t_bufGranul *x);
+
 void bufGranul_nvoices(t_bufGranul *x, long n);			// definition du nombre de voix (polyphonie)
+void bufGranul_bchan_offset(t_bufGranul *x, long n);    // buffer channel offset
 void bufGranul_tellme(t_bufGranul *x);					// demande d'information sur l'etat de l'objet
 void bufGranul_loop(t_bufGranul *x, t_symbol *s, short ac, t_atom *av); // definition de loop points dans le buffer
 
@@ -225,20 +261,15 @@ void bufGranul_loop(t_bufGranul *x, t_symbol *s, short ac, t_atom *av); // defin
 // spatialisation
 float spat (float x, float d, int n);
 float spat2 (float x, float d);
-void panner(t_bufGranul *x, float f);
-void pannerV(t_bufGranul *x, int voice);
-//void bufGranul_dist(t_bufGranul *x, double f);			// modification de la distance (pour le pan)
+void panner(double * out, int n, double teta, double d);
 
 void bufGranul_assist(t_bufGranul *x, void *b, long m, long a, char *s);	// assistance info inlet, out1et
 
 // DSP
-void bufGranul_dsp(t_bufGranul *x, t_signal **sp, short *count);			// signal processing
 void bufGranul_free(t_bufGranul *x);										// liberation de la memoire
-t_int *bufGranul_perform1(t_int *w);	// synthese du signal pour 1 sortie
-t_int *bufGranul_perform2(t_int *w);	// synthese du signal pour 2 sorties
-t_int *bufGranul_perform4(t_int *w);	// synthese du signal pour 4 sorties
-t_int *bufGranul_perform6(t_int *w);	// synthese du signal pour 6 sorties
-t_int *bufGranul_perform8(t_int *w);	// synthese du signal pour 8 sorties
+void bufGranul_dsp64(t_bufGranul *x, t_object *dsp64, short *count, double samplerate, long maxvectorsize, long flags);
+
+void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numins, double **outs, long numouts, long sampleframes, long flags, void *userparam);
 
 
 // BUFFER

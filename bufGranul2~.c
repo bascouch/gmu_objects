@@ -27,40 +27,55 @@
 void *bufGranul_class;
 t_symbol *ps_buffer;
 
+static int x_sinc_table_offset[16] = {15360 ,14336 ,13312 ,12288 ,11264 ,10240 ,9216 ,8192 ,7168 ,6144 ,5120 ,4096 ,3072 ,2048 ,1024 ,0};
 
 //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%//
 
-void main(void)
+void ext_main(void* r)
 { 
-	setup((t_messlist **)&bufGranul_class, (method)bufGranul_new, (method)bufGranul_free, (short)sizeof(t_bufGranul), 0L, A_GIMME, 0);
-                 
-    addmess((method)bufGranul_set, "set", A_GIMME,0);		// definition du buffer~ son
-    addmess((method)bufGranul_setenv, "setenv", A_GIMME, 0);	// definition du buffer~ enveloppe
-	addmess((method)bufGranul_envbuffer, "envbuffer", A_LONG, 0);	// # env buffer actif     
+    t_class *c;
+    
+    c = class_new("bufgranul~", (method)bufGranul_new, (method)bufGranul_free, sizeof(t_bufGranul), (method)NULL, A_GIMME, 0L);
+    
+    class_dspinit(c);
+    
+    class_addmethod(c, (method)bufGranul_set, "set", A_GIMME,0);		// definition du buffer~ son
+    class_addmethod(c, (method)bufGranul_setenv, "setenv", A_GIMME, 0);	// definition du buffer~ enveloppe
+	class_addmethod(c, (method)bufGranul_envbuffer, "envbuffer", A_LONG, 0);	// # env buffer actif
 
-    addmess((method)bufGranul_loop, "loop", A_GIMME, 0);		// infos du mode loop
-	addmess((method)bufGranul_nvoices, "nvoices", A_LONG, 0);	// nombre de voix (polyphonie)       
- 	addmess((method)bufGranul_tellme, "tellme",0);				// demande d'info
-    addbang((method)bufGranul_bang);    						// routine pour un bang, declenchement d'un grain
-    addfloat((method)bufGranul_float);							// affectation des valeurs par des flottants
+    class_addmethod(c, (method)bufGranul_loop, "loop", A_GIMME, 0);		// infos du mode loop
+	class_addmethod(c, (method)bufGranul_nvoices, "nvoices", A_LONG, 0);	// nombre de voix (polyphonie)
+    class_addmethod(c, (method)bufGranul_bchan_offset, "bchan_offset", A_LONG, 0);	// nombre de voix (polyphonie)
+ 	class_addmethod(c, (method)bufGranul_tellme, "tellme",0);				// demande d'info
+    class_addmethod(c, (method)bufGranul_bang, "bang",0);    						// routine pour un bang, declenchement d'un grain
+    class_addmethod(c, (method)bufGranul_float, "float",0);							// affectation des valeurs par des flottants
    
-	addmess((method)bufGranul_assist, "assist", A_CANT, 0);		// assistance in out 
-    addmess((method)bufGranul_dsp, "dsp", A_CANT, 0);			// signal processing
-    addmess((method)bufGranul_sinterp, "sinterp", A_LONG, 0);	// interpollation dans la lecture du buffer pour éviter les clics
-    addmess((method)bufGranul_clear, "clear",0);				// panique ! effacement des grains en cours
-    addmess((method)bufGranul_clear, "panic",0);				// panique ! effacement des grains en cours
-	
-	addmess((method)bufGranul_grain, "grain", A_GIMME, 0);
+	class_addmethod(c, (method)bufGranul_assist, "assist", A_CANT, 0);		// assistance in out 
+    class_addmethod(c, (method)bufGranul_dsp64, "dsp64", A_CANT, 0);			// signal processing
+    class_addmethod(c, (method)bufGranul_sinterp, "sinterp", A_LONG, 0);	// interpollation dans la lecture du buffer pour éviter les clics
+    class_addmethod(c, (method)bufGranul_clear, "clear",0);				// panique ! effacement des grains en cours
+    class_addmethod(c, (method)bufGranul_clear, "panic",0);				// panique ! effacement des grains en cours
+    
+    class_addmethod(c, (method)bufGranul_killall, "killall",0);				// small vecsize fadeout and then panic
+    class_addmethod(c, (method)bufGranul_kill, "kill", A_LONG, 0);
+    
+    class_addmethod(c, (method)bufGranul_polymode, "polymode", A_LONG, 0);
+    
+	class_addmethod(c, (method)bufGranul_grain, "grain", A_GIMME, 0);
+
 
 #ifdef PERF_DEBUG
-    addmess((method)bufGranul_poll, "poll", A_LONG, 0);
-    addmess((method)bufGranul_info, "info", A_LONG, 0);
+    class_addmethod(c, (method)bufGranul_poll, "poll", A_LONG, 0);
+    class_addmethod(c, (method)bufGranul_info, "info", A_LONG, 0);
 #endif
     
-    dsp_initclass();
 	ps_buffer = gensym("buffer~");
+    
+    class_register(CLASS_BOX, c);
+    
+    bufGranul_class = c;
 
-	post("Copyright © 2006 BufGranul~ v2.0 Zorglub GMEM Marseille F") ;
+	post("2017 BufGranul~ 64bit Charles Bascou GMEM Marseille F") ;
 	post("build %s %s",__DATE__,__TIME__);
 }
 
@@ -68,6 +83,76 @@ void main(void)
 void bufGranul_bang (t_bufGranul *x)
 {
 	x->x_askfor = 1;
+}
+
+
+int bufGranul_poly_assign_voice(t_bufGranul *x)
+{
+    int freevoice=-1,curpoly=0;
+    int i;
+    double actual_ind = 0., remain_ind = 0.;
+    int zombi_actual, zombi_remain, zombi_robin;
+    
+    // check actual polyphony and check age and remain of each voices
+    for(i = 0 ; i < NVOICES; i++)
+    {
+        if(x->x_voiceOn[i]==1)
+        {
+            curpoly++;
+            zombi_robin = i;
+            if(actual_ind < x->x_ind[i])
+            {
+                actual_ind = x->x_ind[i];
+                zombi_actual = i;
+            }
+            
+            if(remain_ind < x->x_remain_ind[i])
+            {
+                actual_ind = x->x_remain_ind[i];
+                zombi_remain = i;
+            }
+
+        }
+        else if(x->x_voiceOn[i]!=2) // not in killing mode
+            freevoice = i;
+            
+    }
+    
+    x->x_nvoices_active = curpoly;
+    
+    if(freevoice == -1) // no hardvoice available
+        return 0;
+    
+    if(curpoly < x->x_nvoices) // ok poly is not exceeded
+        return freevoice;
+    
+    
+    //post("zombi_robin %d zombi_actual %d zombi_remain %d",zombi_robin,zombi_actual,zombi_remain);
+    
+    // 0 : wait 1 : round_robin 2 : max_time_lasted 3 : max_time_remaining
+    switch(x->x_poly_mode)
+    {
+            
+            
+        case 0 :
+            return 0;
+        
+        case 1 :
+            bufGranul_kill(x, zombi_robin);
+            return freevoice;
+        
+        case 2 : // kill grain which is the oldest
+            bufGranul_kill(x, zombi_actual);
+            return freevoice;
+            break;
+        
+        case 3 : // kill grain which has the longest tail
+            bufGranul_kill(x, zombi_remain);
+            return freevoice;
+            break;
+
+            
+    }
 }
 
 // declenchement grain par liste
@@ -90,7 +175,7 @@ void bufGranul_grain(t_bufGranul *x, t_symbol *s, short ac, t_atom *av)
 	double detune = atom2float(av,2);
 	double amp = atom2float(av,3);
 	double length = atom2float(av,4);
-	double pan = atom2float(av,5);
+	double pan = MOD(atom2float(av,5),1.);
 	double dist = atom2float(av,6);
 	
 	int buffer = (int)atom2float(av,7);
@@ -102,7 +187,8 @@ void bufGranul_grain(t_bufGranul *x, t_symbol *s, short ac, t_atom *av)
 	delay = delay * srms;
 	p = nvoices;
 	
-	while(--p && x->x_voiceOn[p] ) { }  // avance jusqu a la 1ere voix libre
+    p = bufGranul_poly_assign_voice(x); // get free voice according to polymode
+    //post("p : %d",p);
 				
 				if(p)
 				{
@@ -128,14 +214,18 @@ void bufGranul_grain(t_bufGranul *x, t_symbol *s, short ac, t_atom *av)
 						}
 				
 					
-					x->Vpan[p]		=   pan;						// pan
-					x->Vdist[p]		= dist;					// distance
-					pannerV(x,p);
-					
+                    x->Vpan[p]		=   MAX(pan,0);						// pan
+                    x->Vdist[p]		= SAT(dist, 0., 1.);					// distance
+                    panner(x->Vhp[p],x->x_nouts,x->Vpan[p],x->Vdist[p]);
+                    
 					x->x_ind[p] = 0;
 					x->x_remain_ind[p] = (long) x->Vlength[p];
 					x->x_delay[p] = delay;   // delay de declenchement dans le vecteur         	  
-    					
+                    
+                    x->Vloop[p] = x->x_loop;
+                    x->Vloopstart[p] = x->x_loopstart;
+                    x->Vloopend[p] = x->x_loopend;
+                    
 				}
 
 	
@@ -148,6 +238,41 @@ void bufGranul_clear (t_bufGranul *x)
 	int i;
 	for (i=0; i< NVOICES; i++) x->x_voiceOn[i] = 0;
 }
+
+
+// mark as kill all grains
+void bufGranul_killall (t_bufGranul *x)
+{
+    int i;
+    for (i=0; i< NVOICES; i++)  x->x_voiceOn[i] = (x->x_voiceOn[i]) ? 2 : 0;
+}
+
+// kill specific grain
+void bufGranul_kill(t_bufGranul *x, long k)
+{
+    if(k < NVOICES)
+    {
+        if(x->x_voiceOn[k]) x->x_voiceOn[k] = 2;
+    }
+}
+
+// adress specific voice
+void bufGranul_setvoice(t_bufGranul *x, long k)
+{
+    if(k < NVOICES)
+    {
+        if(x->x_voiceOn[k]) x->x_voiceOn[k] = 2;
+    }
+}
+
+
+void bufGranul_polymode(t_bufGranul *x, long k)
+{
+    k = SAT(k,0,3);
+    x->x_poly_mode = k;
+}
+
+
 
 // voir en sortie le nombre de voix, le buffer son actif etc...
 #ifdef PERF_DEBUG
@@ -237,97 +362,197 @@ float spat2 (float x, float d)
 	return pow(x1 * ((d / 2) + 0.5) , 0.5)  ;	// (racine de x1) compensee pour la distance
 }
 
-// Panning suivant nombres de hps (2-4-6-8)
-void panner(t_bufGranul *x, float teta)
-{  
-	int n = x->x_nouts;
-	float delta = 1./(float)n ;
-	float d = x->x_dist;	
-	
-	teta = (teta < 0 ? 0 : teta) ;
-	x->x_teta = teta;	
-	
-			
-	switch (n)
-	{
-		case 1:
-			break;
-		case 2:
-			x->x_hp1 = spat2( teta + 0.5, d) ;	
-			x->x_hp2 = spat2( teta + 0.0, d) ;
-		break;
-		
-		case 4:
-			x->x_hp1 = spat( teta + 0.5, d, n) ;	
-			x->x_hp2 = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->x_hp3 = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->x_hp4 = spat( teta + 0.5 + (1 * delta), d, n) ;
-		break;
-		
-		case 6:
-			x->x_hp1 = spat( teta + 0.5, d, n) ;	
-			x->x_hp2 = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->x_hp3 = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->x_hp4 = spat( teta + 0.5 - (3 * delta), d, n) ;	
-			x->x_hp5 = spat( teta + 0.5 + (2 * delta), d, n) ;	
-			x->x_hp6 = spat( teta + 0.5 + (1 * delta), d, n) ;	
-		break;
-		
-		case 8 :	
-			x->x_hp1 = spat( teta + 0.5, d, n) ;	
-			x->x_hp2 = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->x_hp3 = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->x_hp4 = spat( teta + 0.5 - (3 * delta), d, n) ;	
-			x->x_hp5 = spat( teta + 0.5 - (4 * delta), d, n) ;	
-			x->x_hp6 = spat( teta + 0.5 + (3 * delta), d, n) ;	
-			x->x_hp7 = spat( teta + 0.5 + (2 * delta), d, n) ;	
-			x->x_hp8 = spat( teta + 0.5 + (1 * delta), d, n) ;	
-		break;
-	}
+// Panning suivant nombres de hps par voix(min:1  max:16)
+//void pannerV(t_bufGranul *x, int voice)
+void panner(double * out, int n, double teta, double d)
+{
+    //int n = x->x_nouts;
+    double delta = 1./(double)n ;
+    //double d = ((x->Vdist[voice] < 0 ? 0 : x->Vdist[voice]) > 1 ? 1 : x->Vdist[voice]);
+    //double teta = (x->Vpan[voice] < 0 ? 0 : x->Vpan[voice]) ;
+    
+    switch (n)
+    {
+        case 1 :
+            out[0] = 1.;
+        case 2 :
+            out[0] = spat2( teta + 0.5, d) ;
+            out[1] = spat2( teta + 0.0, d) ;
+            break;
+            
+        case 3 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+        case 4 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 5 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 6 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 7 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 8 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 9 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 10 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 11 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+        case 12 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 - (6 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[11] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+        case 13 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 - (6 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 + (6 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[11] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[12] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+        case 14 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 - (6 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 - (7 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (6 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[11] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[12] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[13] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+            
+        case 15 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 - (6 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 - (7 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 + (7 * delta), d, n) ;
+            out[9]  = spat( teta + 0.5 + (6 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[11] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[12] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[13] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[14] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+        case 16 :
+            out[0] = spat( teta + 0.5, d, n) ;
+            out[1] = spat( teta + 0.5 - (1 * delta), d, n) ;
+            out[2] = spat( teta + 0.5 - (2 * delta), d, n) ;
+            out[3] = spat( teta + 0.5 - (3 * delta), d, n) ;
+            out[4] = spat( teta + 0.5 - (4 * delta), d, n) ;
+            out[5] = spat( teta + 0.5 - (5 * delta), d, n) ;
+            out[6] = spat( teta + 0.5 - (6 * delta), d, n) ;
+            out[7] = spat( teta + 0.5 - (7 * delta), d, n) ;
+            out[8] = spat( teta + 0.5 - (8 * delta), d, n) ;
+            out[9] = spat( teta + 0.5 + (7 * delta), d, n) ;
+            out[10] = spat( teta + 0.5 + (6 * delta), d, n) ;
+            out[11] = spat( teta + 0.5 + (5 * delta), d, n) ;
+            out[12] = spat( teta + 0.5 + (4 * delta), d, n) ;
+            out[13] = spat( teta + 0.5 + (3 * delta), d, n) ;
+            out[14] = spat( teta + 0.5 + (2 * delta), d, n) ;
+            out[15] = spat( teta + 0.5 + (1 * delta), d, n) ;
+            break;
+            
+    }
+    
 }
 
-// Panning suivant nombres de hps par voix(2-4-6-8)
-void pannerV(t_bufGranul *x, int voice)
-{  
-	int n = x->x_nouts;
-	float delta = 1./(float)n ;
-	float d = ((x->Vdist[voice] < 0 ? 0 : x->Vdist[voice]) > 1 ? 1 : x->Vdist[voice]);
-	float teta = (x->Vpan[voice] < 0 ? 0 : x->Vpan[voice]) ;
-	switch (n)
-	{
-		case 2:
-			x->Vhp1[voice] = spat2( teta + 0.5, d) ;	
-			x->Vhp2[voice] = spat2( teta + 0.0, d) ;
-		break;
-		
-		case 4:
-			x->Vhp1[voice] = spat( teta + 0.5, d, n) ;	
-			x->Vhp2[voice] = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->Vhp3[voice] = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->Vhp4[voice] = spat( teta + 0.5 + (1 * delta), d, n) ;
-		break;
-		
-		case 6:
-			x->Vhp1[voice] = spat( teta + 0.5, d, n) ;	
-			x->Vhp2[voice] = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->Vhp3[voice] = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->Vhp4[voice] = spat( teta + 0.5 - (3 * delta), d, n) ;	
-			x->Vhp5[voice] = spat( teta + 0.5 + (2 * delta), d, n) ;	
-			x->Vhp6[voice] = spat( teta + 0.5 + (1 * delta), d, n) ;	
-		break;
-		
-		case 8 :	
-			x->Vhp1[voice] = spat( teta + 0.5, d, n) ;	
-			x->Vhp2[voice] = spat( teta + 0.5 - (1 * delta), d, n) ;	
-			x->Vhp3[voice] = spat( teta + 0.5 - (2 * delta), d, n) ;	
-			x->Vhp4[voice] = spat( teta + 0.5 - (3 * delta), d, n) ;	
-			x->Vhp5[voice] = spat( teta + 0.5 - (4 * delta), d, n) ;	
-			x->Vhp6[voice] = spat( teta + 0.5 + (3 * delta), d, n) ;	
-			x->Vhp7[voice] = spat( teta + 0.5 + (2 * delta), d, n) ;	
-			x->Vhp8[voice] = spat( teta + 0.5 + (1 * delta), d, n) ;	
-		break;
-	}
-}
+
 
 // Reception des valeurs sur les entrees non-signal
 void bufGranul_float(t_bufGranul *x, double f)
@@ -350,21 +575,14 @@ void bufGranul_float(t_bufGranul *x, double f)
 									 }
 								}
 	else if (x->x_obj.z_in == 5){	 
-									x->x_pan = f;
-									panner(x, x->x_pan);
-									// necessaire si on ne fait pas le calcul
-									// dans la perform quand signal non connecte
+                                    x->x_pan = MOD(f,1.);
 								}		
 	else if (x->x_obj.z_in == 6){	 
 									x->x_dist = f;
-									panner(x, x->x_pan);
-									// necessaire si on ne fait pas le calcul
-									// dans la perform quand signal non connecte
 								}
 	else if (x->x_obj.z_in == 7){	 
 									x->x_active_buf = buffer_check(x,(int)f);
-									// necessaire si on ne fait pas le calcul
-									// dans la perform quand signal non connecte
+
 								}		
 }
 
@@ -372,13 +590,19 @@ void bufGranul_float(t_bufGranul *x, double f)
 void bufGranul_nvoices(t_bufGranul *x, long n) 
 { 
 	n = (n > 0) ? n : 1 ;
-	x->x_nvoices = (n < NVOICES) ? n+1 : NVOICES; 
+	x->x_nvoices = (n < NVOICES) ? n : NVOICES/2;
+}
+
+void bufGranul_bchan_offset(t_bufGranul *x, long n)
+{
+    n = (n > 0) ? n : 0 ;
+    x->x_bchan_offset = n;
 }
 
 // interpollation dans la lecture du buffer (evite clic, crack et autre pop plop)
 void bufGranul_sinterp(t_bufGranul *x, long n)
 { 
-	x->x_sinterp = n ? 1 : 0 ; 
+	x->x_sinterp = SAT(n,0,2) ;
 }
 
 // mode loop begin end ....
@@ -501,25 +725,25 @@ void bufGranul_tellme(t_bufGranul *x)
 			{
 				for(i=0; i<x->x_nbuffer; i++)
 				{
-					SETSYM( x->info_list, gensym("buffer"));
+					_SETSYM( x->info_list, gensym("buffer"));
 					//if(x->x_buf[i])
 					//{
-						SETLONG(x->info_list+1, i);
+						_SETLONG(x->info_list+1, i);
 						
 						if(x->x_buf_sym[i] && x->x_buf_sym[i]->s_name)
-							SETSYM(x->info_list+2, x->x_buf_sym[i]);
+							_SETSYM(x->info_list+2, x->x_buf_sym[i]);
 						else
-							SETSYM(x->info_list+2,gensym("unknown name"));
+							_SETSYM(x->info_list+2,gensym("unknown name"));
 							
 						if(x->x_buf_filename[i] && x->x_buf_filename[i]->s_name)
-							SETSYM(x->info_list+3, x->x_buf_filename[i]);
+							_SETSYM(x->info_list+3, x->x_buf_filename[i]);
 						else
-							SETSYM(x->info_list+3,gensym("unknown filename"));
+							_SETSYM(x->info_list+3,gensym("unknown filename"));
 						
 						if(x->x_buf_frames[i])
-							SETFLOAT(x->info_list+4,  x->x_buf_frames[i]/44.1);
+							_SETFLOAT(x->info_list+4,  x->x_buf_frames[i]/44.1);
 						else
-							SETFLOAT(x->info_list+4,0.);
+							_SETFLOAT(x->info_list+4,0.);
 					
 							outlet_list(x->info,0l,5,x->info_list);
 						}
@@ -528,17 +752,17 @@ void bufGranul_tellme(t_bufGranul *x)
 			
 			if(n==1 || n==-1)
 			{
-				SETSYM( x->info_list, gensym("active_env"));
-				SETFLOAT(x->info_list+1,  x->x_active_env+1 ); 
+				_SETSYM( x->info_list, gensym("active_env"));
+				_SETFLOAT(x->info_list+1,  x->x_active_env+1 ); 
 				outlet_list(x->info,0l,2,x->info_list);
 				
 				for(i=0; i<x->x_nenvbuffer; i++)
 				{
 					if(x->x_env_sym[i])
 					{
-						SETSYM(x->info_list, gensym("envbuffer"));
-						SETLONG(x->info_list+1, i);
-						SETSYM(x->info_list+2, x->x_env_sym[i]); 
+						_SETSYM(x->info_list, gensym("envbuffer"));
+						_SETLONG(x->info_list+1, i);
+						_SETSYM(x->info_list+2, x->x_env_sym[i]);
 						outlet_list(x->info,0l,3,x->info_list);
 					}
 				}
@@ -555,9 +779,9 @@ void bufGranul_tellme(t_bufGranul *x)
 void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
 {   
 	t_buffer *b1;	
-	int i,j,symcount = 0, k; 
-	float f;
-    t_bufGranul *x = (t_bufGranul *)newobject(bufGranul_class); 
+    int i,j,symcount = 0, longcount = 0;
+	double f,w;
+    t_bufGranul *x = (t_bufGranul *)object_alloc((t_class *) bufGranul_class);
     //dsp_setup((t_pxobject *)x,1);  
           
     //creation des entres supplementaires---//
@@ -565,15 +789,18 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
     dsp_setup((t_pxobject *)x,8);
     
     x->x_nouts = 2;	// pour que nb outs = 2 si pas specifie
+    x->x_bchan_offset = 0; // buffer channel offset if unspecified
+    
+    x->x_poly_mode = 0;
     
 	if(ac < 2)
 	{
-		post("Missing Arguments 1 Sound Buffer Name 2 Envelope Buffer Name 3 Outputs number (1-2-4-6-8)");
+		post("syntax error : bufgranul~ <snd_buf> <env_buf> <out_channels> <buffer_chans_offset");
 		return nil;
 	} else {
 
 		//////////////arguments/////////////////
-		// note : 1er symbol buffer son , 2eme symbol buffer env, 3eme nombres de sorties
+		// note : 1er symbol buffer son , 2eme symbol buffer env, 3eme nombres de sorties, buffer channel offset
 
 		for (i=0; i< NSBUF; i++)
 		{
@@ -597,8 +824,12 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
     		switch (av[j].a_type){
     		
     			case A_LONG:
-    			//	post("argument %ld is a long : %ld, assigned to nb outs", (long)j,av[j].a_w.w_long);
-    				x->x_nouts = av[j].a_w.w_long;
+                    if(longcount)
+                        x->x_bchan_offset = av[j].a_w.w_long;
+                    else
+                        x->x_nouts = av[j].a_w.w_long;
+                    
+                    longcount++;
     			break;
     			
     			case A_SYM:
@@ -630,33 +861,13 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
 		x->info = outlet_new((t_pxobject *)x, 0L);
 		#endif
 		
-		//creation des sortie signal
-		outlet_new((t_pxobject *)x, "signal");
-		
-		if (x->x_nouts > 1)
-			outlet_new((t_pxobject *)x, "signal");
-		  
-		if (x->x_nouts > 2)
-		{
-			//x->x_nouts = 4;
-			outlet_new((t_pxobject *)x, "signal");
-			outlet_new((t_pxobject *)x, "signal");
-		}
-    	
-		if (x->x_nouts > 4)
-		{
-			//x->x_nouts = 6;
-			outlet_new((t_pxobject *)x, "signal");
-			outlet_new((t_pxobject *)x, "signal");
-		}
-    	
-		if (x->x_nouts > 6)
-		{
-			//x->x_nouts = 8;   	
-			outlet_new((t_pxobject *)x, "signal");
-			outlet_new((t_pxobject *)x, "signal");
-		}
-		
+        // limit n outs to 16
+        x->x_nouts = SAT(x->x_nouts,1,16);
+        
+        //creation des sortie signal
+        for (int hp=0; hp < x->x_nouts;hp++)
+            outlet_new((t_pxobject *)x, "signal");
+        
 		//allocations des tableaux
 		if( !bufGranul_alloc(x))
 		{
@@ -676,8 +887,7 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
     
 		x->x_pan = 1/(x->x_nouts*2);
 		x->x_dist = 1;
-		panner(x, x->x_pan); 
-		x->x_nvoices_active = 0;  
+		x->x_nvoices_active = 0;
 		x->x_env_dir = 1;
         
 		for (i=0; i< NVOICES; i++){       
@@ -712,12 +922,64 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
 		}
 		for(i=0; i<TABLE_SIZE ; i++)
 		{
-			f = (float)(i)/TABLE_SIZE; // va de 0 a 1
+			f = (double)(i)/TABLE_SIZE; // va de 0 a 1
 			
 			x->x_linear_interp_table[i].a = 1 - f;
 			x->x_linear_interp_table[i].b = f;
 		}
-
+        
+        // fill sinc table + blackman ( 8 zero crossings for 17 points interpol )
+        
+        // generation de la table de coeff d'interpolation
+        x->x_sinc_interp_table = (double *) sysmem_newptr( SINC_TABLE_SIZE * sizeof(double) );
+        x->x_blackman_table = (double *) sysmem_newptr( SINC_TABLE_SIZE * sizeof(double) );
+        x->x_sinc_norm_table = (double *) sysmem_newptr( SINC_TABLE_SIZE * sizeof(double) );
+        
+        int sinc_table_size_2 = SINC_TABLE_SIZE / 2.;
+        double sinc_sum = 0.;
+        for(i=0; i<SINC_TABLE_SIZE ; i++)
+        {
+            f = (double)(i-sinc_table_size_2)/(double)sinc_table_size_2; // va de -1 a 1
+            f = M_PI * f * 8; // for 8 zerocorssings
+            
+            // BLACKMAN
+            w = .42-.5*cos((double)(2*M_PI*i)/SINC_TABLE_SIZE)+.08*cos((double)(4*M_PI*i)/SINC_TABLE_SIZE);
+            
+            x->x_blackman_table[i] = w;
+            
+            x->x_sinc_interp_table[i] = ((f != 0. )?(sin(f)/f):1.);
+            sinc_sum += x->x_sinc_interp_table[i];
+            
+            //post("black %lf\n",w);//x->x_blackman_table[i]);
+            
+        }
+        
+        //printf("sinc sum %lf\n",sinc_sum);
+        
+        int m;
+        double val;
+        double highpass_fact;
+        
+        for(i=0; i<SINC_TABLE_SIZE ; i++)
+        {
+            highpass_fact = i;
+            highpass_fact /= (double)SINC_TABLE_SIZE;
+            val = 0.;
+            //
+            for(m=-7;m<9;m++)
+                val += x->x_sinc_interp_table[(long)(8192+ highpass_fact * (8192 - (x_sinc_table_offset[m+7])))] ;
+            x->x_sinc_norm_table[i] = (double)1./val;
+            //printf("i %d hpfact %f norm %f\n",i,highpass_fact,x->x_sinc_norm_table[i]);
+            
+            
+        }
+            
+        x->x_kill_fadeout = (double *) sysmem_newptr( MAX_VECTORSIZE * sizeof(double) );
+        x->x_unity_gain = (double *) sysmem_newptr( MAX_VECTORSIZE * sizeof(double) );
+        
+        for(i=0;i<MAX_VECTORSIZE;i++)
+            x->x_unity_gain[i]=1.;
+        
 		return (x);
 	}
 
@@ -996,9 +1258,9 @@ void bufGranul_envbuffer(t_bufGranul *x, long n)
 
 // DSP
 
-void bufGranul_dsp(t_bufGranul *x, t_signal **sp, short *count)
+void bufGranul_dsp64(t_bufGranul *x, t_object *dsp64, short *count, double samplerate, long maxvectorsize, long flags)
 {
-	int n = x->x_nouts ;
+    int i;
 	x->x_sr = sys_getsr();
 
 
@@ -1010,56 +1272,26 @@ void bufGranul_dsp(t_bufGranul *x, t_signal **sp, short *count)
 	x->x_in6con = count[5] > 0;
 	x->x_in7con = count[6] > 0;
 	x->x_in8con = count[7] > 0;
+    
+    // generate fadeout
+    
+    for(i=0;i<maxvectorsize;i++)
+        x->x_kill_fadeout[i]=(double)(maxvectorsize-i)/maxvectorsize;
 
-	//post("sig connected : %d %d %d %d %d",x->x_in2con,x->x_in3con,x->x_in4con,x->x_in5con,x->x_in6con);
-	switch (n) 
-	{	
-		case 1 :
-		dsp_add(bufGranul_perform1, 11, x, 
-		sp[0]->s_vec, sp[1]->s_vec, sp[2]->s_vec, sp[3]->s_vec, sp[4]->s_vec, sp[5]->s_vec, sp[6]->s_vec, sp[7]->s_vec,
-		sp[8]->s_vec,
-		sp[0]->s_n);
-		break;
-		
-		case 2 :
-		dsp_add(bufGranul_perform2, 12, x, 
-		sp[0]->s_vec, sp[1]->s_vec, sp[2]->s_vec, sp[3]->s_vec, sp[4]->s_vec, sp[5]->s_vec, sp[6]->s_vec, sp[7]->s_vec,
-		sp[8]->s_vec, sp[9]->s_vec,
-		sp[0]->s_n);
-		break;
-			
-		case 4 :
-		dsp_add(bufGranul_perform4, 14, x, 
-		sp[0]->s_vec, sp[1]->s_vec, sp[2]->s_vec, sp[3]->s_vec, sp[4]->s_vec, sp[5]->s_vec, sp[6]->s_vec, sp[7]->s_vec, 
-		sp[8]->s_vec, sp[9]->s_vec, sp[10]->s_vec, sp[11]->s_vec,
-		sp[0]->s_n);
-		break;
-		
-		case 6 :		
-		dsp_add(bufGranul_perform6, 16, x,  
-		sp[0]->s_vec, sp[1]->s_vec, sp[2]->s_vec, sp[3]->s_vec, sp[4]->s_vec, sp[5]->s_vec, sp[6]->s_vec, sp[7]->s_vec, 
-		sp[8]->s_vec,sp[9]->s_vec, sp[10]->s_vec,sp[11]->s_vec, sp[12]->s_vec, sp[13]->s_vec,
-		sp[0]->s_n);
-		break ;
-		
-		case 8 :
-		dsp_add(bufGranul_perform8, 18, x,  
-		sp[0]->s_vec, sp[1]->s_vec, sp[2]->s_vec, sp[3]->s_vec, sp[4]->s_vec, sp[5]->s_vec, sp[6]->s_vec, sp[7]->s_vec,
-		sp[8]->s_vec, sp[9]->s_vec, sp[10]->s_vec, sp[11]->s_vec, sp[12]->s_vec, sp[13]->s_vec, sp[14]->s_vec, sp[15]->s_vec,
-		sp[0]->s_n);
-		break ;
-	}
+    object_method(dsp64, gensym("dsp_add64"), x, bufGranul_perform, 0, NULL);
 }
 
 void bufGranul_free(t_bufGranul *x)
 {
-	
-	bufGranul_desalloc(x);
-	
-	if(x->x_linear_interp_table)
-		sysmem_freeptr(x->x_linear_interp_table);
 
-	dsp_free((t_pxobject *) x);
+    
+    bufGranul_desalloc(x);
+    
+    if(x->x_linear_interp_table)
+        sysmem_freeptr(x->x_linear_interp_table);
+    
+    dsp_free((t_pxobject *) x);
+    
 }
 
 // routines allocations
@@ -1072,42 +1304,41 @@ int bufGranul_alloc(t_bufGranul *x)
     if( !(x->x_sind 		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
     
     if( !(x->Vbeg		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
-    if( !(x->Vtranspos	= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vamp		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vlength		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vpan		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vdist		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
+    if( !(x->Vtranspos	= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Vamp		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Vlength		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Vpan		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Vdist		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
 
-   	if( !(x->Vbuf		= (int *) sysmem_newptr(NVOICES * sizeof(int)))) return 0;
+    if( !(x->Vloop		= (long *) sysmem_newptr(NVOICES * sizeof(long)))) return 0;
+    if( !(x->Vloopstart		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Vloopend		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    
+   	if( !(x->Vbuf		= (long *) sysmem_newptr(NVOICES * sizeof(long)))) return 0;
 
-    if( !(x->envinc		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->envind		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->x_env		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Venv		= (int *) sysmem_newptr(NVOICES * sizeof(int)))) return 0;
+    if( !(x->envinc		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->envind		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->x_env		= (double *) sysmem_newptr(NVOICES * sizeof(double)))) return 0;
+    if( !(x->Venv		= (long *) sysmem_newptr(NVOICES * sizeof(long)))) return 0;
 
     if( !(x->x_delay		= (int *) sysmem_newptr(NVOICES * sizeof(int)))) return 0;
     if( !(x->x_voiceOn	= (int *) sysmem_newptr(NVOICES * sizeof(int)))) return 0;
     
-    if( !(x->Vhp1		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp2		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp3		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp4		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp5		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp6		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp7		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
-    if( !(x->Vhp8		= (float *) sysmem_newptr(NVOICES * sizeof(float)))) return 0;
+    if( !(x->x_hp		= (double *) sysmem_newptr(x->x_nouts * sizeof(double)))) return 0;
+    
+    if( !(x->Vhp		= (double **) sysmem_newptr(NVOICES * sizeof(double*)))) return 0;
+    
+    for (int i = 0; i<NVOICES; i++) {
+        if( !(x->Vhp[i]		= (double *) sysmem_newptr(x->x_nouts * sizeof(double)))) return 0;}
 
-    return !(!x->x_ind | !x->x_remain_ind | !x->x_sind | !x->Vbeg | !x->Vtranspos | !x->Vamp | !x->Vlength	| !x->Vpan | !x->Vdist |
-    			!x->Vbuf| !x->envinc | !x->envind | !x->x_env | !x->Venv | !x->x_delay | !x->x_voiceOn
-    				 | !x->Vhp1 | !x->Vhp2 | !x->Vhp3 | !x->Vhp4 | !x->Vhp5 | !x->Vhp6 | !x->Vhp7 | !x->Vhp8 );
+    return 1;
 }
 
 int bufGranul_desalloc(t_bufGranul *x)
 {
-	
- 	sysmem_freeptr(x->x_ind);
-	sysmem_freeptr(x->x_remain_ind);
-	sysmem_freeptr(x->x_sind);
+    sysmem_freeptr(x->x_ind);
+    sysmem_freeptr(x->x_remain_ind);
+    sysmem_freeptr(x->x_sind);
     
     sysmem_freeptr(x->Vbeg);
     sysmem_freeptr(x->Vtranspos);
@@ -1115,6 +1346,10 @@ int bufGranul_desalloc(t_bufGranul *x)
     sysmem_freeptr( x->Vlength);
     sysmem_freeptr(x->Vpan);
     sysmem_freeptr( x->Vdist);
+    
+    sysmem_freeptr( x->Vloop);
+    sysmem_freeptr( x->Vloopstart);
+    sysmem_freeptr( x->Vloopend);
     
     sysmem_freeptr(x->Vbuf);
     
@@ -1126,16 +1361,15 @@ int bufGranul_desalloc(t_bufGranul *x)
     sysmem_freeptr(x->x_delay);
     sysmem_freeptr(x->x_voiceOn);
     
-    sysmem_freeptr(x->Vhp1);
-    sysmem_freeptr(x->Vhp2);
-    sysmem_freeptr(x->Vhp3);
-    sysmem_freeptr(x->Vhp4);
-    sysmem_freeptr(x->Vhp5);
-    sysmem_freeptr(x->Vhp6);
-    sysmem_freeptr(x->Vhp7);
-    sysmem_freeptr(x->Vhp8);
-	
- return 1; 
+    sysmem_freeptr(x->x_hp);
+    
+    for (int i = 0; i<NVOICES; i++) {
+        sysmem_freeptr(x->Vhp[i]);
+    }
+    
+    sysmem_freeptr(x->Vhp);
+    
+    
+    return 1;
 }
-
 //THE END, that's all hulk!!!!!!

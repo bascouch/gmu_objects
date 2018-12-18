@@ -2,18 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>FoundWorkingCopyPaths</key>
-	<array>
-		<string>/Users/charles/Documents/_GMEM/_dev/__max/GMU-projects</string>
-	</array>
-	<key>LastWorkingCopyScanDate</key>
-	<date>2013-04-08T08:20:18Z</date>
-	<key>MissingFilePaths</key>
-	<array>
-		<string>/Library/Frameworks/MaxAPI.framework</string>
-		<string>/Library/Frameworks/MaxAudioAPI.framework</string>
-	</array>
 	<key>Version</key>
-	<integer>4</integer>
+	<integer>5</integer>
 </dict>
 </plist>
