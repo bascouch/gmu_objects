@@ -234,6 +234,8 @@ void synGranul_nvoices(t_synGranul *x, long n);			// definition du nombre de voi
 void synGranul_tellme(t_synGranul *x);					// demande d'information sur l'etat de l'objet
 #endif
 
+int bufferenv_check(t_synGranul *x, int num);
+
 
 // spatialisation
 float spat (float x, float d, int n);
@@ -413,8 +415,8 @@ void synGranul_grain(t_synGranul *x, t_symbol *s, short ac, t_atom *av)
 					x->Vmem1[p] = sin(iphase-fn);
 					x->Vmem2[p] = sin(iphase-2*fn);
 					
-					x->Vamp[p]		= amp;						// amplitude
-					x->Venv[p] =  bufferenv_check(x, envbuffer );	// enveloppe active pour ce grain
+					x->Vamp[p] = amp;						// amplitude
+					x->Venv[p] = bufferenv_check(x, envbuffer);	// enveloppe active pour ce grain
      
 				
 						if(length<0)
