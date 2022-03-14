@@ -34,9 +34,10 @@
 #include <string.h>
 #include <math.h>
 
-#define NVOICES 512 // nombre maximum de voix
-#define NSBUF 512	// nombre maximum de buffers son
-#define NEBUF 512	// nombre maximum de buffers enveloppe
+#define NMAXPOLY 1024 // nombre maximum de voix
+#define NVOICES 2048 // nombre maximum de voix materielle ( x2 pour le swapping )
+#define NSBUF 2048	// nombre maximum de buffers son
+#define NEBUF 2048	// nombre maximum de buffers enveloppe
 #define MIN_LENGTH 0.1 // longueur minimum des grains en ms  // DISABLED 
 
 // Le mode perf_debug cree une 3-5-7-9eme sortie a l'objet
@@ -193,9 +194,11 @@ typedef struct _bufGranul
     double * x_blackman_table;
     double * x_sinc_norm_table;
     
-// FADEOUT KILL
+// FADEIN FADEOUT KILL
+    double * x_fadein;
     double * x_kill_fadeout;
     double * x_unity_gain;
+    
 
 	 
 // DSP
@@ -251,6 +254,8 @@ void bufGranul_setvoice(t_bufGranul *x, long k);    // TODO : address specific v
 
 void bufGranul_polymode(t_bufGranul *x, long k);
 int bufGranul_poly_assign_voice(t_bufGranul *x);
+void bufGranul_poly_check_and_kill(t_bufGranul *x); // when waiting voices are playing
+
 
 void bufGranul_nvoices(t_bufGranul *x, long n);			// definition du nombre de voix (polyphonie)
 void bufGranul_bchan_offset(t_bufGranul *x, long n);    // buffer channel offset

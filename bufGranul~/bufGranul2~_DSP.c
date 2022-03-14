@@ -174,6 +174,12 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 							x->envinc[p]	= -1.*(float)(x->x_env_frames[t_active_env] - 1.) / x->Vlength[p] ;
 							x->envind[p]	= x->x_env_frames[t_active_env] - 1;
 						}
+                        else if (t_length[xn] == 0.) // whole buffer
+                        {
+                            x->Vlength[p] = x->x_buf_frames[x->Vbuf[p]];
+                            x->envinc[p]    = (float)(x->x_env_frames[t_active_env] - 1.) / x->Vlength[p] ;
+                            x->envind[p]    = 0. ;
+                        }
 						else
 						{
 							x->Vlength[p]	= t_length[xn]*srms;
@@ -183,7 +189,10 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 					}
 					else
 					{
-						x->Vlength[p] = lengthind;
+                        if(lengthind == 0.)
+                            x->Vlength[p] = x->x_buf_frames[x->Vbuf[p]];
+                        else
+                            x->Vlength[p] = lengthind;
 						x->envinc[p] = x->x_env_dir * x->x_env_frames[t_active_env] / x->Vlength[p] ;
 						if(x->x_env_dir < 0)
 							x->envind[p] =  x->x_env_frames[t_active_env] - 1;
@@ -227,19 +236,32 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 		for (i=0; i < NVOICES ; i++)
 		{         
 			//si la voix est en cours              
-			if (x->x_voiceOn[i]) //&& x->x_ind[i] < x->Vlength[i] )
+			if (x->x_voiceOn[i]>0) //&& x->x_ind[i] < x->Vlength[i] )
 			{
-                if(x->x_voiceOn[i]==2) // kill voice
-                    fade_table=x->x_kill_fadeout;
-                else
-                    fade_table=x->x_unity_gain;
+                
                 
 				// si delay + grand que taille vecteur on passe ˆ voix suivante 
 				if(x->x_delay[i] >= N)
-				{	
+				{
+                    if(x->x_voiceOn[i]==3) // kill mode -> free voice
+                        x->x_voiceOn[i]=0;
+                    else
+                        x->x_voiceOn[i]=2; // wait mode
 					x->x_delay[i] -= N ;
 					goto next;
 				}
+                
+                if(x->x_voiceOn[i]==2) // waiting voice now ready for playing -> kill voices if poly exceeded
+                {
+                    bufGranul_poly_check_and_kill(x);
+                    x->x_voiceOn[i]=1;
+                }
+                if(x->x_voiceOn[i]==3) // kill voice
+                    fade_table=x->x_kill_fadeout;
+                else if(x->x_ind[i]==0) // fadein
+                    fade_table=x->x_fadein;
+                else
+                    fade_table=x->x_unity_gain;
 				
 				// nb d'ech a caluler pour ce vecteur
 				nech_process = MIN( (N - x->x_delay[i]) , x->x_remain_ind[i] );
@@ -600,7 +622,7 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 				
 				x->x_ind[i] += nech_process_sat;
 				
-				if( ((x->x_remain_ind[i] -= nech_process_sat) <= 0) || x->x_voiceOn[i] ==2 )
+				if( ((x->x_remain_ind[i] -= nech_process_sat) <= 0) || x->x_voiceOn[i] ==3 )
 				{	
 					x->x_voiceOn[i] = 0;
 					//post("remain kill");
@@ -612,10 +634,6 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 					
 
 			}
-            else if(x->x_voiceOn[i] == 2) // kill voice
-            {
-                
-            }
             else {
 				
 				//sinon = si la voix est libre// 

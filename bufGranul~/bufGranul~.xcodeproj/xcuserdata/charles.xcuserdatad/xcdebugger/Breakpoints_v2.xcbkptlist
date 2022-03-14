@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Bucket
+   uuid = "DFE3FAD4-470D-4EBC-87A5-764899124C0F"
    type = "1"
    version = "2.0">
    <Breakpoints>
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
+            uuid = "A9E6F559-25D3-440A-A1B6-068F2EE46509"
             shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
@@ -15,13 +17,14 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "214"
             endingLineNumber = "214"
-            landmarkName = "bufGranul_perform"
+            landmarkName = "bufGranul_perform(x, dsp64, ins, numins, outs, numouts, sampleframes, flags, userparam)"
             landmarkType = "9">
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
+            uuid = "0EA28FB2-F069-47C0-867B-3650A2DC4CFB"
             shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
@@ -31,7 +34,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "587"
             endingLineNumber = "587"
-            landmarkName = "bufGranul_perform"
+            landmarkName = "bufGranul_perform(x, dsp64, ins, numins, outs, numouts, sampleframes, flags, userparam)"
             landmarkType = "9">
          </BreakpointContent>
       </BreakpointProxy>

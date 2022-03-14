@@ -1381,8 +1381,8 @@ void liveGranul_perform64(t_liveGranul *x, t_object *dsp64, double **ins, long n
     t_double * t_xing		= ins[1];
     t_double * t_begin 		= ins[2];
     t_double * t_transpos 	= ins[3];
-    t_double * t_amp			= ins[4];
-    t_double * t_length 		= ins[5];
+    t_double * t_amp		= ins[4];
+    t_double * t_length 	= ins[5];
     t_double * t_pan 		= ins[6];
     t_double * t_dist 		= ins[7];
     
