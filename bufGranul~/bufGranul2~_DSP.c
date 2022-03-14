@@ -238,8 +238,6 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 			//si la voix est en cours              
 			if (x->x_voiceOn[i]>0) //&& x->x_ind[i] < x->Vlength[i] )
 			{
-                
-                
 				// si delay + grand que taille vecteur on passe ˆ voix suivante 
 				if(x->x_delay[i] >= N)
 				{
@@ -258,8 +256,8 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
                 }
                 if(x->x_voiceOn[i]==3) // kill voice
                     fade_table=x->x_kill_fadeout;
-                else if(x->x_ind[i]==0) // fadein
-                    fade_table=x->x_fadein;
+                //else if(x->x_ind[i]==0) // fadein
+                //    fade_table=x->x_fadein;
                 else
                     fade_table=x->x_unity_gain;
 				
@@ -289,7 +287,7 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 				if( !x->Vloop[i] )
 				{
 					// si index source hors des bornes -> kill grain
-					if( source_findex >  x->x_buf_frames[t_bufnum] || source_findex <  0 )
+					if( source_findex >  t_bufframes || source_findex <  0 )
 					{
 						x->x_voiceOn[i] = 0;
 						goto next;
