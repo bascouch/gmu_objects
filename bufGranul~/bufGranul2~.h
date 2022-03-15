@@ -199,7 +199,7 @@ typedef struct _bufGranul
     double * x_kill_fadeout;
     double * x_unity_gain;
     
-
+    long x_microtiming;
 	 
 // DSP
     double x_sr;						// frequence d'echantillonnage
@@ -261,7 +261,7 @@ void bufGranul_nvoices(t_bufGranul *x, long n);			// definition du nombre de voi
 void bufGranul_bchan_offset(t_bufGranul *x, long n);    // buffer channel offset
 void bufGranul_tellme(t_bufGranul *x);					// demande d'information sur l'etat de l'objet
 void bufGranul_loop(t_bufGranul *x, t_symbol *s, short ac, t_atom *av); // definition de loop points dans le buffer
-
+void bufGranul_microtiming(t_bufGranul *x, long flag);        // nombres de voix en sorties
 
 // spatialisation
 float spat (float x, float d, int n);

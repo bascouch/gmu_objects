@@ -53,6 +53,7 @@ void ext_main(void* r)
 	class_addmethod(c, (method)bufGranul_assist, "assist", A_CANT, 0);		// assistance in out 
     class_addmethod(c, (method)bufGranul_dsp64, "dsp64", A_CANT, 0);			// signal processing
     class_addmethod(c, (method)bufGranul_sinterp, "sinterp", A_LONG, 0);	// interpollation dans la lecture du buffer pour éviter les clics
+    class_addmethod(c, (method)bufGranul_microtiming, "microtiming", A_LONG, 0);        // infos du mode loop
     class_addmethod(c, (method)bufGranul_clear, "clear",0);				// panique ! effacement des grains en cours
     class_addmethod(c, (method)bufGranul_clear, "panic",0);				// panique ! effacement des grains en cours
     
@@ -108,7 +109,7 @@ int bufGranul_poly_assign_voice(t_bufGranul *x)
             
             if(remain_ind < x->x_remain_ind[i])
             {
-                actual_ind = x->x_remain_ind[i];
+                remain_ind = x->x_remain_ind[i];
                 zombi_remain = i;
             }
 
@@ -675,6 +676,11 @@ void bufGranul_sinterp(t_bufGranul *x, long n)
 	x->x_sinterp = SAT(n,0,2) ;
 }
 
+void bufGranul_microtiming(t_bufGranul *x, long flag)
+{
+    x->x_microtiming = SAT(flag,0,1) ;
+}
+
 // mode loop begin end ....
 void bufGranul_loop(t_bufGranul *x, t_symbol *s, short ac, t_atom *av)
 {
@@ -953,7 +959,8 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
 		x->x_length = 100;
     
 		x->x_sinterp = 1;
-		 x->x_loop = 0 ;
+        x->x_loop = 0 ;
+        x->x_microtiming = 0;
     
 		x->x_pan = 1/(x->x_nouts*2);
 		x->x_dist = 1;

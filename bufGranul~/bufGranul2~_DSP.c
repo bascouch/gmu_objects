@@ -111,6 +111,8 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 
     double * fade_table;
     
+    double microtiming_coeff;
+    
 	// debug var
 #ifdef PERF_DEBUG
     int n_voices_active;
@@ -155,12 +157,14 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 			sigin = in[xn];
 			if (prevsigin <= 0 && sigin > 0) // creation d'un grain
 			{
+                microtiming_coeff = x->x_microtiming * prevsigin/(sigin - prevsigin);
+                
 				p = bufGranul_poly_assign_voice(x); // get free voice according to polymode
 				
 				if(p)
 				{
     				x->x_voiceOn[p] = 1;
-					x->x_sind[p] = x->Vbeg[p] = (x->x_in2con) * t_begin[xn]*srms + (1 - x->x_in2con)* beginind;	// index dans buffer
+					x->x_sind[p] = x->Vbeg[p] = microtiming_coeff + (x->x_in2con) * t_begin[xn]*srms + (1 - x->x_in2con)* beginind;	// index dans buffer
 					x->Vtranspos[p] = (x->x_in3con) * t_transpos[xn] + (1 - x->x_in3con) * x->x_transpos;			// valeur de pitch
 					x->Vamp[p]		= (x->x_in4con) * t_amp[xn] + (1 - x->x_in4con) * x->x_amp;						// amplitude
 					x->Vbuf[p] = (x->x_in8con) ? buffer_check(x,(int) t_sndbuf[xn] ) :  t_active_buf;		// numero du buffer son	
@@ -171,20 +175,20 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
 						if(t_length[xn]<0)
 						{	
 							x->Vlength[p]	= -t_length[xn]*srms;
-							x->envinc[p]	= -1.*(float)(x->x_env_frames[t_active_env] - 1.) / x->Vlength[p] ;
-							x->envind[p]	= x->x_env_frames[t_active_env] - 1;
+							x->envinc[p]	= -1.*(float)(x->x_env_frames[t_active_env] - 2) / x->Vlength[p] ;
+							x->envind[p]	= x->x_env_frames[t_active_env] - 1  + (1+microtiming_coeff) * x->envinc[p] ;
 						}
                         else if (t_length[xn] == 0.) // whole buffer
                         {
                             x->Vlength[p] = x->x_buf_frames[x->Vbuf[p]];
-                            x->envinc[p]    = (float)(x->x_env_frames[t_active_env] - 1.) / x->Vlength[p] ;
-                            x->envind[p]    = 0. ;
+                            x->envinc[p]    = (float)(x->x_env_frames[t_active_env] - 2) / x->Vlength[p] ;
+                            x->envind[p]    = (1+microtiming_coeff) * x->envinc[p];
                         }
 						else
 						{
 							x->Vlength[p]	= t_length[xn]*srms;
-							x->envinc[p]	= (float)(x->x_env_frames[t_active_env] - 1.) / x->Vlength[p] ;
-							x->envind[p]	= 0. ;
+							x->envinc[p]	= (float)(x->x_env_frames[t_active_env] - 2) / x->Vlength[p] ;
+                            x->envind[p]	=  (1+microtiming_coeff) * x->envinc[p] ;
 						}
 					}
 					else
@@ -255,7 +259,7 @@ void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numin
                     x->x_voiceOn[i]=1;
                 }
                 if(x->x_voiceOn[i]==3) // kill voice
-                    fade_table=x->x_kill_fadeout;
+                    fade_table=x->x_kill_fadeout+x->x_delay[i]; // decalage du pointeur de fade out par le delai
                 //else if(x->x_ind[i]==0) // fadein
                 //    fade_table=x->x_fadein;
                 else
