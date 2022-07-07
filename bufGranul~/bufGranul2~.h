@@ -54,8 +54,6 @@
 
 // MACRO UTILES
 #define SAT(a,min,max) (a < min) ? min : ( (a > max) ? max : a )
-#define MIN(a,min) (a < min) ? a : min
-#define MAX(a,max) (a > max) ? a : max 
 #define MOD(val,mod) val - (mod * floor( (double)val / mod ))
 
 #define MODI(val,mod) val - (mod * ((val/mod) + (val >> 31))) // modulo LONG 32 bits version 
@@ -123,7 +121,7 @@ typedef struct _bufGranul
     t_symbol *x_buf_filename[NSBUF];	// nom du fichier dans le buffer~ son 
     int		  x_buf_nchan[NSBUF];		// nombre de canaux du buffer~ son
     long	  x_buf_frames[NSBUF];		// le nombre de sample dans le buffer~ son
-	double	 *x_buf_samples[NSBUF];		// pointeur sur le tableau d'échantillon du buffer~ son
+	float	 *x_buf_samples[NSBUF];		// pointeur sur le tableau d'échantillon du buffer~ son
 	double     x_buf_sronsr[NSBUF];		// freq ech buffer sur freq ech globale
 	int		  x_nbuffer;				// nombre de buffer son
  	int       x_active_buf;				// le buffer son actif est celui dans lequel les nouveaux grains sont prélevés.
@@ -136,7 +134,7 @@ typedef struct _bufGranul
     t_buffer *x_env_buf[NEBUF];			// le buffer~ enveloppe
     t_symbol *x_env_sym[NEBUF];			// le symbol correspondant au nom du buffer~ enveloppe
     long	  x_env_frames[NEBUF];		// le nombre de sample dans le buffer~ enveloppe
-	double	 *x_env_samples[NEBUF];		// pointeur sur le tableau d'échantillon du buffer~ enveloppe
+    float	 *x_env_samples[NEBUF];		// pointeur sur le tableau d'échantillon du buffer~ enveloppe
 	int		  x_nenvbuffer;				// nombre de buffer enveloppe
  	int       x_active_env;				// le buffer enveloppe actif est celui dans lequel les nouveaux grains sont prélevés.
 

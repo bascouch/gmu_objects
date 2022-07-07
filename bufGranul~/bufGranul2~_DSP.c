@@ -29,7 +29,6 @@
 
 static int x_sinc_table_offset[16] = {15360 ,14336 ,13312 ,12288 ,11264 ,10240 ,9216 ,8192 ,7168 ,6144 ,5120 ,4096 ,3072 ,2048 ,1024 ,0};
 
-
 //***********************************************************************************//
 
 void bufGranul_perform(t_bufGranul *x, t_object *dsp64, double **ins, long numins, double **outs, long numouts, long sampleframes, long flags, void *userparam)

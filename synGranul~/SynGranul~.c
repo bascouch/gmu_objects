@@ -58,10 +58,7 @@
 
 #define MAGIC_CIRCLE 1
 
-#define MIN(a,min) (a < min) ? a : min
-#define MAX(a,max) (a > max) ? a : max
 #define MOD(x,m) ( ( x = fmod(x,m) ) < 0. ) ? x+m : x 
-#define MAX(a,max) (a > max) ? a : max
 
 #define _SETSYM(ap, x) ((ap)->a_type = A_SYM, (ap)->a_w.w_sym = (x))
 #define _SETLONG(ap, x) ((ap)->a_type = A_LONG, (ap)->a_w.w_long = (x))

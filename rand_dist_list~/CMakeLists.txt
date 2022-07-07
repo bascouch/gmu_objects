@@ -3,7 +3,7 @@ if (APPLE)
 	set(CMAKE_OSX_ARCHITECTURES x86_64;arm64)
 endif ()
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../../max-sdk-base/script/max-pretarget.cmake)
+include(${C74_SDK}/max-sdk-base/script/max-pretarget.cmake)
 
 #############################################################
 # MAX EXTERNAL
@@ -26,4 +26,4 @@ add_library(
 	${PROJECT_SRC}
 )
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../../max-sdk-base/script/max-posttarget.cmake)
+include(${C74_SDK}/max-sdk-base/script/max-posttarget.cmake)

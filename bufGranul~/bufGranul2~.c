@@ -872,7 +872,7 @@ void *bufGranul_new(t_symbol *s, short ac, t_atom *av)
 	if(ac < 2)
 	{
 		post("syntax error : bufgranul~ <snd_buf> <env_buf> <out_channels> <buffer_chans_offset");
-		return nil;
+		return;
 	} else {
 
 		//////////////arguments/////////////////

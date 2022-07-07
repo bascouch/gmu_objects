@@ -55,8 +55,6 @@
 // MACRO UTILES
 #define SAT(a,min,max) (a < min) ? min : ( (a > max) ? max : a )
 #define SATADD(a,min,max) (a < min) ? a + min : ( (a > max) ? max : a )
-#define MIN(a,min) (a < min) ? a : min
-#define MAX(a,max) (a > max) ? a : max
 #define MOD(val,mod) val - (mod * floor( (float)val / mod ))
 
 #define MODI(val,mod) val - (mod * ((val/mod) + (val >> 31))) // modulo LONG 32 bits version
@@ -899,7 +897,7 @@ void *liveGranul_new(t_symbol *s, short ac, t_atom *av)
 	if(ac < 2)
 	{
 		post("Missing Arguments Name 1 Envelope Buffer Name 2 Outputs number (1-2-4-6-8)");
-		return nil;
+		return;
 	} else {
 
 		//////////////arguments/////////////////
